@@ -2,83 +2,157 @@ mod imports;
 use imports::renderer::draw;
 use std::collections::VecDeque;
 
-struct dialog
+type CatalogIndex = usize;
+type DialogSelection = usize;
+
+struct Dialog
 {
     prompt: String,
 
     // String: option description.
-    // u32: index into immutable state catalog array. (the sate machine hosts a stack)
-    options: Vec<(String,u32)>,
+    // CatalogIndex: index into immutable State catalog array. (the sate machine hosts a stack)
+    options: Vec<(String,CatalogIndex)>,
 }
 
-impl dialog
+impl Dialog
 {
-    fn new() -> dialog 
+    fn new() -> Dialog 
     {
-        dialog 
+        Dialog 
         {
-            prompt: String::from("Try this!"),
-            options: Vec::new(),
+            prompt: String::from("Which option do you want to try?"),
+            options: vec!(
+                (String::from("This one sounds good."), 1),
+                (String::from("Do I have to choose?"), 2),
+                (String::from("Let me think about this some more..."), 3),
+            ),
         }
     } 
 }
 
-struct state
+struct State
 {
     render: fn(),
     caption: String,
-    interaction: dialog,
+    interaction: Dialog,
     dead_end: bool,
 }
 
-impl state
+impl State
 {
-    fn new() -> state 
+    fn new() -> State 
     {
-        state 
+        State 
         {
             render: draw::blank,
             caption: String::new(),
-            interaction: dialog::new(),
+            interaction: Dialog::new(),
             dead_end: false
         }
     }
 
-    pub fn enter(&mut self)
+    pub fn enter(&self)
     {
+        draw::clear_screen();
         (self.render)();
         println!("{}",self.caption);
     }
 
-    fn query_input(&mut self)
+    fn query_input(&self) -> DialogSelection
     {
+        println!("{}",self.interaction.prompt);
+        
+        for (i, optn) in self.interaction.options.iter().enumerate()
+        {
+            println!("{}) {}", i, optn.0);
+        }
 
+        const INVALID_ENTRY : usize = 999;
+        let mut dialog_selection: usize = INVALID_ENTRY;
+        while dialog_selection == INVALID_ENTRY
+        {
+            let mut user_input = String::new();
+            std::io::stdin()
+                .read_line(&mut user_input)
+                .expect("Failed to read line");
+
+                        
+            dialog_selection = match user_input.trim().parse() {
+                Ok(num) => num,
+                Err(_) => {
+                    println!("That's an invalid entry. Try again...");
+                    INVALID_ENTRY
+                },
+            };
+        }
+
+        return dialog_selection
     }
 
-    fn tick(&self)
+    fn tick(&self, sm : &StateMachine)
     {
+        let dialog_selection = self.query_input();
 
+        println!("You chose the following option:\n{}", self.interaction.options[dialog_selection].0);
+
+        sm.change_state() //TODO: access catalog from somewhere.
     }
 }
 
-struct state_machine<'a>
+struct Catalog
 {
-    catalog : Vec<state>, //All of the possible states
-    stack : VecDeque<&'a state>, //Only ever stacks to 2
+    states : Vec<State>, //All of the possible states,
+}
+
+impl Catalog
+{
+    fn new() -> Catalog
+    {
+        let mut new_catalog = Catalog{
+            states : Vec::new(),
+        };
+
+        new_catalog.states.push(
+            State {
+                render: draw::title_screen,
+                caption: String::from("Try this!"),
+                interaction: Dialog::new(),
+                dead_end: false,
+            }
+        );
+
+        return new_catalog;
+    }
+
+    fn first_state(&self) -> &State
+    {
+        &self.states[0]
+    }
+}
+
+struct StateMachine<'a>
+{
+    stack : VecDeque<&'a State>, //Only ever stacks to 2
     is_running : bool
 }
 
-impl<'a> state_machine<'a>
+impl<'a> StateMachine<'a>
 {
-    // fn change_state(&mut self, new_state : state)
-    // {
-    //     if(new_state.dead_end)
-    //     {
-    //         self.stack.push_back();
-    //     }
-    // }
+    fn change_state(&mut self, new_state : &'a State)
+    {
+        if new_state.dead_end || self.stack.is_empty()
+        {
+            self.stack.push_back(new_state);
+        }
+        else
+        {
+            self.stack[0] = new_state;
+        }
 
-    fn tick(&mut self)
+        new_state.enter();
+    }
+
+    fn tick(&mut self, sm : &StateMachine)
     {
         self.is_running = !self.stack.is_empty();
 
@@ -87,33 +161,21 @@ impl<'a> state_machine<'a>
             return;
         }
 
-        let current_state : &state = self.stack.back().expect("stack should never be empty.");
+        let current_state = self.stack.back().unwrap();
 
-        current_state.tick();
-    }
+        current_state.tick(sm);
 
-    fn init_catalog(catalg : &'a mut Vec<state>)
-    {
-        let obj = state {
-            render: draw::title_screen,
-            caption: String::from("Try this!"),
-            interaction: dialog::new(),
-            dead_end: false,
-        };
-
-        catalg.push(obj);
-    }
-
-    fn init_stack(vd : &mut VecDeque<&'a state>,  catalg : &'a Vec<state>)
-    {
-        vd.push_back(& catalg[0]);
-    }
-
-    fn new() -> state_machine<'a>
-    {
-        state_machine 
+        // If this was a dead end, let's pop that off and return to the previous session.
+        if current_state.dead_end
         {
-            catalog : Vec::new(),
+            self.stack.pop_back();
+        }
+    }
+
+    fn new() -> StateMachine<'a>
+    {
+        StateMachine 
+        {
             stack : VecDeque::new(),
             is_running : true
         }
@@ -122,44 +184,15 @@ impl<'a> state_machine<'a>
 
 fn main()
 {
-    // draw::clear_screen();
-    // draw::title_screen();
-    // println!("
-    // Welcome to the restaurant!
-    // How may we serve you today?");
+    let catalog = Catalog::new();
+    let mut sm = StateMachine::new();
 
+    sm.change_state(catalog.first_state());
 
-    // let obj = state {
-    //     render: draw::title_screen,
-    //     caption: String::from("Try this!"),
-    //     interaction: dialog::new(),
-    //     dead_end: false,
-    // };
-
-    // (obj.render)();
-
-    // let mut sm = state_machine::new();
-
-    // {
-    //     let ctlg = &mut sm.catalog;
-    //     state_machine::init_catalog(ctlg);
-    //     state_machine::init_stack(&mut sm.stack, ctlg);
-    // }
-
-    // while sm.is_running 
-    // {
-    //     sm.tick();
-    // }    
-    
-    let mut s = state_machine::new();
+    while sm.is_running 
     {
-        let r1 = &mut s.catalog;
-    } // r1 goes out of scope here, so we can make a new reference with no problems.
-
-    let r2 = &mut s;
-    r2.tick();
-
-
+        sm.tick();
+    }    
 }
 
 
