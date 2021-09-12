@@ -95,7 +95,7 @@ impl State
 
         println!("You chose the following option:\n{}", self.interaction.options[dialog_selection].0);
 
-        sm.change_state() //TODO: access catalog from somewhere.
+        //sm.change_state() //TODO: access catalog from somewhere.
     }
 }
 
@@ -132,14 +132,23 @@ impl Catalog
 
 struct StateMachine<'a>
 {
+    catalog : &'a Catalog,
     stack : VecDeque<&'a State>, //Only ever stacks to 2
     is_running : bool
 }
 
-impl<'a> StateMachine<'a>
+impl StateMachine<'_>
 {
-    fn change_state(&mut self, new_state : &'a State)
+    fn get_state(& self, state_index : CatalogIndex) -> & State
     {
+        &self.catalog.states[state_index]
+    }
+    fn change_state(& mut self, state_index : CatalogIndex)
+    {
+        let new_state = StateMachine::get_state(self, state_index);
+        //let new_state = self.get_state(state_index);
+        //let new_state = &self.catalog.states[state_index]; //idk why I can't use get_state....
+
         if new_state.dead_end || self.stack.is_empty()
         {
             self.stack.push_back(new_state);
@@ -152,7 +161,21 @@ impl<'a> StateMachine<'a>
         new_state.enter();
     }
 
-    fn tick(&mut self, sm : &StateMachine)
+    // fn change_state(&mut self, new_state : &'a State)
+    // {
+    //     if new_state.dead_end || self.stack.is_empty()
+    //     {
+    //         self.stack.push_back(new_state);
+    //     }
+    //     else
+    //     {
+    //         self.stack[0] = new_state;
+    //     }
+
+    //     new_state.enter();
+    // }
+
+    fn tick(&mut self)
     {
         self.is_running = !self.stack.is_empty();
 
@@ -163,7 +186,7 @@ impl<'a> StateMachine<'a>
 
         let current_state = self.stack.back().unwrap();
 
-        current_state.tick(sm);
+        current_state.tick(self);
 
         // If this was a dead end, let's pop that off and return to the previous session.
         if current_state.dead_end
@@ -172,10 +195,11 @@ impl<'a> StateMachine<'a>
         }
     }
 
-    fn new() -> StateMachine<'a>
+    fn new(catalog_in : &Catalog) -> StateMachine
     {
         StateMachine 
         {
+            catalog: catalog_in,
             stack : VecDeque::new(),
             is_running : true
         }
@@ -185,9 +209,9 @@ impl<'a> StateMachine<'a>
 fn main()
 {
     let catalog = Catalog::new();
-    let mut sm = StateMachine::new();
+    let mut sm = StateMachine::new(&catalog);
 
-    sm.change_state(catalog.first_state());
+    sm.change_state(0);
 
     while sm.is_running 
     {
